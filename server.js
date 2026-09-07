@@ -40,18 +40,57 @@ const app = express();
 const uploadsDir = path.join(__dirname, "uploads");
 if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
 
-// CORS strict : pas de fallback "*" (incompatible avec les cookies
-// d'authentification httpOnly, et trop permissif par defaut).
-const CLIENT_URL = process.env.CLIENT_URL || "https://universityshare.netlify.app";
-app.use(cors({ origin: CLIENT_URL, credentials: true }));
+// ============================================================
+// CONFIGURATION CORS AMELIOREE
+// ============================================================
+// Liste des origines autorisees (environnements de dev + production)
+const allowedOrigins = [
+    "http://localhost:5173", // Vite dev par defaut
+    "http://localhost:3000", // React / Next dev
+    "http://127.0.0.1:5173",
+    "http://127.0.0.1:3000",
+    "https://universityshare.netlify.app", // Production Netlify
+    "https://universityshare.netlify.com", // Fallback
+    process.env.CLIENT_URL // Variable d'env personnalisee (optionnelle)
+].filter(Boolean); // Supprime les eventuelles valeurs undefined
 
-app.use(express.json({ limit: "1mb" })); // plus besoin de grosses limites : les PDF passent par /api/uploads
+console.log("[CORS] Origines autorisees :", allowedOrigins);
+
+app.use(cors({
+    origin: function(origin, callback) {
+        // Permettre les requetes sans 'origin' (ex: apps mobiles, curl)
+        if (!origin) return callback(null, true);
+
+        if (allowedOrigins.includes(origin)) {
+            callback(null, true);
+        } else {
+            console.warn("[CORS] Origine refusee :", origin);
+            callback(new Error("Cette origine n'est pas autorisee par CORS"));
+        }
+    },
+    credentials: true, // ← CRUCIAL pour les cookies httpOnly
+    methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
+    allowedHeaders: [
+        "Content-Type",
+        "Authorization",
+        "X-Requested-With",
+        "Accept",
+        "Origin"
+    ],
+    exposedHeaders: ["Set-Cookie"],
+    maxAge: 86400 // 24h de cache pour les preflight OPTIONS
+}));
+
+// Middlewares habituels
+app.use(express.json({ limit: "1mb" }));
 app.use(cookieParser());
 app.use(morgan("dev"));
 app.use("/uploads", express.static(uploadsDir));
 
+// Route de verification
 app.get("/", (req, res) => res.json({ message: "University Dashboard API - OK" }));
 
+// Routes
 app.use("/api/auth", authRoutes);
 app.use("/api/users", userRoutes);
 app.use("/api/courses", courseRoutes);
@@ -67,14 +106,48 @@ app.use("/api/uploads", uploadRoutes);
 app.use("/api/access-codes", accessCodeRoutes);
 app.use("/api/upgrade-requests", upgradeRequestRoutes);
 
-// 404
-app.use((req, res) => res.status(404).json({ message: "Route introuvable" }));
+// 404 - Route introuvable
+app.use((req, res) => {
+    res.status(404).json({ message: "Route introuvable" });
+});
 
 // Gestion d'erreurs globale
 app.use((err, req, res, next) => {
-    console.error(err.stack);
-    res.status(err.statusCode || 500).json({ message: err.message || "Erreur serveur" });
+    console.error("[ERREUR SERVEUR]", err.stack);
+    res.status(err.statusCode || 500).json({
+        message: err.message || "Erreur interne du serveur",
+        ...(process.env.NODE_ENV === "development" && { stack: err.stack })
+    });
 });
 
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => console.log(`Serveur demarre sur le port ${PORT}`));
+
+// Demarrer le serveur avec gestion d'erreur pour le port
+const server = app.listen(PORT, () => {
+    console.log(`✅ Serveur demarre sur le port ${PORT}`);
+    console.log(`   Mode : ${process.env.NODE_ENV || "development"}`);
+    console.log(`   CORS autorise depuis : ${allowedOrigins.join(", ")}`);
+});
+
+// Gestion d'erreur si le port est déjà utilisé
+server.on('error', (err) => {
+    if (err.code === 'EADDRINUSE') {
+        console.error(`\n❌ Le port ${PORT} est déjà utilisé !`);
+        console.log(`💡 Solutions :`);
+        console.log(`   1. Tuer le processus : netstat -ano | findstr :${PORT}`);
+        console.log(`   2. Changer de port dans .env : PORT=5001`);
+        console.log(`   3. Redémarrer l'ordinateur\n`);
+        process.exit(1);
+    } else {
+        throw err;
+    }
+});
+
+// Gestion de l'arrêt propre du serveur
+process.on('SIGINT', () => {
+    console.log('\n🛑 Arrêt du serveur...');
+    server.close(() => {
+        console.log('✅ Serveur arrêté proprement');
+        process.exit(0);
+    });
+});
