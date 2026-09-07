@@ -8,23 +8,12 @@ const generateToken = (id) =>
 
 // Place le JWT dans un cookie httpOnly plutot que de le renvoyer dans le
 // corps JSON : le frontend n'a plus besoin de le stocker/gerer lui-meme.
-// En production, le frontend (ex: Netlify) et le backend (ex: Render) sont
-// deployes sur des domaines differents : un cookie "sameSite: lax" ne
-// serait alors jamais envoye lors des appels API cross-origin (seulement
-// lors d'une navigation top-level), et la connexion semblerait "ne rien
-// faire" cote frontend. "sameSite: none" (qui exige "secure: true") est
-// necessaire des que frontend et backend ne partagent pas le meme domaine.
-const isProduction = process.env.NODE_ENV === "production";
-const authCookieOptions = {
-    httpOnly: true,
-    secure: isProduction,
-    sameSite: isProduction ? "none" : "lax",
-};
-
 const sendAuthCookie = (res, userId) => {
     const token = generateToken(userId);
     res.cookie("token", token, {
-        ...authCookieOptions,
+        httpOnly: true,
+        secure: process.env.NODE_ENV === "production",
+        sameSite: "lax",
         maxAge: 7 * 24 * 60 * 60 * 1000, // 7 jours
     });
 };
@@ -113,7 +102,11 @@ exports.login = async(req, res) => {
 
 // @route POST /api/auth/logout
 exports.logout = (req, res) => {
-    res.clearCookie("token", authCookieOptions);
+    res.clearCookie("token", {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === "production",
+        sameSite: "lax",
+    });
     res.json({ message: "Deconnecte" });
 };
 
