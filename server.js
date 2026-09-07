@@ -50,8 +50,7 @@ const allowedOrigins = [
     "http://127.0.0.1:5173",
     "http://127.0.0.1:3000",
     "https://universityshare.netlify.app", // Production Netlify
-    "https://universityshare.netlify.com",
-    "https://agent-6a9e9cf1c82dd5e5cb1ceca1--universityshare.netlify.app/", // Fallback
+    "https://universityshare.netlify.com", // Fallback
     process.env.CLIENT_URL // Variable d'env personnalisee (optionnelle)
 ].filter(Boolean); // Supprime les eventuelles valeurs undefined
 
