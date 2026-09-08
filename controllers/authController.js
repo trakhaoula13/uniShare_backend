@@ -61,15 +61,47 @@ exports.register = async(req, res) => {
     }
 };
 
+const MAX_LOGIN_ATTEMPTS = 5;
+
 // @route POST /api/auth/login
 exports.login = async(req, res) => {
     try {
         const { email, password } = req.body;
         const user = await User.findOne({ email });
 
-        if (!user || !(await user.matchPassword(password))) {
+        if (!user) {
             return res.status(401).json({ message: "Email ou mot de passe incorrect" });
         }
+
+        // Compte deja verrouille suite a trop d'echecs recents.
+        if (user.isLocked()) {
+            const remainingMin = Math.ceil((user.lockUntil - Date.now()) / 60000);
+            return res.status(423).json({
+                message: `Compte temporairement verrouille suite a trop de tentatives. Reessayez dans ${remainingMin} min.`,
+                lockUntil: user.lockUntil,
+            });
+        }
+
+        const isMatch = await user.matchPassword(password);
+
+        if (!isMatch) {
+            await user.registerFailedLogin();
+
+            if (user.isLocked()) {
+                return res.status(423).json({
+                    message: "Compte verrouille pendant 15 minutes suite a 5 tentatives echouees.",
+                    lockUntil: user.lockUntil,
+                });
+            }
+
+            const attemptsLeft = MAX_LOGIN_ATTEMPTS - user.failedLoginAttempts;
+            return res.status(401).json({
+                message: `Email ou mot de passe incorrect (${attemptsLeft} tentative${attemptsLeft > 1 ? "s" : ""} restante${attemptsLeft > 1 ? "s" : ""} avant verrouillage).`,
+            });
+        }
+
+        // Connexion reussie : on remet le compteur d'echecs a zero.
+        await user.resetFailedLogins();
 
         const token = generateToken(user._id);
         await user.populate("sponsor", "name email");
@@ -158,6 +190,10 @@ exports.resetPassword = async(req, res) => {
         }
 
         user.password = newPassword; // rehashe automatiquement par le hook pre("save")
+        // Reinitialiser aussi le verrouillage : un nouveau mot de passe
+        // choisi via ce flux merite de repartir sur des bases saines.
+        user.failedLoginAttempts = 0;
+        user.lockUntil = null;
         await user.save();
 
         res.json({ message: "Mot de passe reinitialise avec succes" });
