@@ -6,19 +6,6 @@ const generateToken = (id) =>
         expiresIn: process.env.JWT_EXPIRES_IN || "7d",
     });
 
-// Place le JWT dans un cookie httpOnly plutot que de le renvoyer dans le
-// corps JSON : le frontend n'a plus besoin de le stocker/gerer lui-meme.
-const sendAuthCookie = (res, userId) => {
-    const token = generateToken(userId);
-    const isProd = process.env.NODE_ENV === "production";
-    res.cookie("token", token, {
-        httpOnly: true,
-        secure: isProd, // true en prod (HTTPS requis avec sameSite: none)
-        sameSite: isProd ? "none" : "lax", // "none" en cross-site prod, "lax" en local (localhost:5173)
-        maxAge: 7 * 24 * 60 * 60 * 1000,
-    });
-};
-
 // @route POST /api/auth/register
 // body: { name, email, password, major, otpToken }
 // otpToken doit provenir de POST /api/otp/verify (purpose: "register").
@@ -57,9 +44,10 @@ exports.register = async(req, res) => {
 
         const user = await User.create({ name, email, password, major, role, sponsor: null });
 
-        sendAuthCookie(res, user._id);
+        const token = generateToken(user._id);
 
         res.status(201).json({
+            token,
             _id: user._id,
             name: user.name,
             email: user.email,
@@ -83,10 +71,11 @@ exports.login = async(req, res) => {
             return res.status(401).json({ message: "Email ou mot de passe incorrect" });
         }
 
-        sendAuthCookie(res, user._id);
+        const token = generateToken(user._id);
         await user.populate("sponsor", "name email");
 
         res.json({
+            token,
             _id: user._id,
             name: user.name,
             email: user.email,
@@ -102,13 +91,10 @@ exports.login = async(req, res) => {
 };
 
 // @route POST /api/auth/logout
+// Le token est stocke cote client (localStorage) : la deconnexion consiste
+// simplement a le supprimer cote frontend. Cette route reste disponible
+// pour compatibilite / eventuelle logique future (ex: blacklist de tokens).
 exports.logout = (req, res) => {
-    const isProd = process.env.NODE_ENV === "production";
-    res.clearCookie("token", {
-        httpOnly: true,
-        secure: isProd,
-        sameSite: isProd ? "none" : "lax",
-    });
     res.json({ message: "Deconnecte" });
 };
 
