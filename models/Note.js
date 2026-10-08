@@ -6,12 +6,16 @@ const attachmentSchema = new mongoose.Schema({
     fileType: { type: String, default: "" },
     fileUrl: { type: String, required: true },
     size: { type: Number, default: 0 },
+    // Visible par les lecteurs (en plus du partage de la page elle-meme).
+    sharedWithViewers: { type: Boolean, default: false },
 }, { _id: false });
 
 // Une note texte ajoutee a l'interieur de la page (sous-note).
 const entrySchema = new mongoose.Schema({
     title: { type: String, default: "", trim: true },
     text: { type: String, required: true },
+    // Visible par les lecteurs (en plus du partage de la page elle-meme).
+    sharedWithViewers: { type: Boolean, default: false },
     createdAt: { type: Date, default: Date.now },
 });
 
