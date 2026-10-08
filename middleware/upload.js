@@ -1,11 +1,9 @@
 // backend/middleware/upload.js  (REMPLACE ta version actuelle)
+// Les fichiers sont gardes en memoire le temps de la requete puis ecrits
+// dans MongoDB (GridFS) par uploadController : ils survivent ainsi aux
+// redemarrages et redeploiements de Render (disque ephemere).
 const multer = require("multer");
 const path = require("path");
-const fs = require("fs");
-const crypto = require("crypto");
-
-const UPLOAD_DIR = path.join(__dirname, "..", "uploads");
-fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 
 const MAX_FILE_SIZE = 25 * 1024 * 1024; // 25 Mo par fichier
 
@@ -16,14 +14,6 @@ const BLOCKED_EXTENSIONS = new Set([
     ".exe", ".msi", ".bat", ".cmd", ".sh", ".jar", ".com", ".scr", ".vbs",
 ]);
 
-const storage = multer.diskStorage({
-    destination: (req, file, cb) => cb(null, UPLOAD_DIR),
-    filename: (req, file, cb) => {
-        const ext = path.extname(file.originalname).toLowerCase();
-        cb(null, `${Date.now()}-${crypto.randomBytes(6).toString("hex")}${ext}`);
-    },
-});
-
 const fileFilter = (req, file, cb) => {
     const ext = path.extname(file.originalname).toLowerCase();
     if (BLOCKED_EXTENSIONS.has(ext)) {
@@ -32,4 +22,8 @@ const fileFilter = (req, file, cb) => {
     cb(null, true);
 };
 
-module.exports = multer({ storage, fileFilter, limits: { fileSize: MAX_FILE_SIZE } });
+module.exports = multer({
+    storage: multer.memoryStorage(),
+    fileFilter,
+    limits: { fileSize: MAX_FILE_SIZE },
+});
