@@ -8,7 +8,7 @@ const path = require("path");
 const os = require("os");
 const crypto = require("crypto");
 
-const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50 Mo par fichier
+const MAX_FILE_SIZE = 80 * 1024 * 1024; // 80 Mo par fichier
 
 // Tous les types sont acceptes SAUF ceux qui peuvent executer du code quand
 // ils sont ouverts (risque XSS / malware).
