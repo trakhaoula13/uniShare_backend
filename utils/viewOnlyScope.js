@@ -4,12 +4,26 @@
 // d'acces), ne voit que les elements de son "sponsor" explicitement
 // marques comme partages avec les lecteurs. Un "user" sans sponsor actif
 // retrouve normalement ses propres elements.
-exports.scopeFilter = (req) => {
+//
+// Si le code utilise est "restreint" (req.codeScope, charge par le
+// middleware protect), le lecteur ne voit que les cours / notes choisis
+// pour ce code. `kind` indique le type de ressource demande :
+//   scopeFilter(req, "course") ou scopeFilter(req, "note").
+// Les autres ressources (devoirs, emploi du temps), qui appellent
+// scopeFilter(req) sans type, restent invisibles avec un code restreint.
+exports.scopeFilter = (req, kind) => {
     const sponsorId = req.user.sponsor && req.user.sponsor._id ? req.user.sponsor._id : req.user.sponsor;
     const isConsulting = sponsorId && (req.user.role === "viewonly" || req.user.role === "user");
 
     if (isConsulting) {
-        return { owner: sponsorId, sharedWithViewers: true };
+        const base = { owner: sponsorId, sharedWithViewers: true };
+        const scope = req.codeScope;
+        if (scope && scope.restricted) {
+            if (kind === "course") return {...base, _id: { $in: scope.courses || [] } };
+            if (kind === "note") return {...base, _id: { $in: scope.notes || [] } };
+            return {...base, _id: { $in: [] } }; // autres ressources : rien
+        }
+        return base;
     }
     if (req.user.role === "admin" && req.query.all === "true") {
         return {};

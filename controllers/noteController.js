@@ -2,7 +2,7 @@ const Note = require("../models/Note");
 const { scopeFilter } = require("../utils/viewOnlyScope");
 
 exports.getNotes = async(req, res) => {
-    const notes = await Note.find(scopeFilter(req)).populate("course", "title color").sort({ createdAt: -1 });
+    const notes = await Note.find(scopeFilter(req, "note")).populate("course", "title color").sort({ createdAt: -1 });
 
     // Meme regle que pour les cours : un compte qui consulte les donnees d'un
     // sponsor (role viewonly ou user rattache a un sponsor) ne voit QUE ce qui

@@ -1,5 +1,6 @@
 const jwt = require("jsonwebtoken");
 const User = require("../models/User");
+const AccessCode = require("../models/AccessCode");
 
 // Le token JWT est lu depuis le header Authorization ("Bearer <token>").
 // Evite les problemes de cookies tiers (SameSite/third-party) entre
@@ -19,6 +20,15 @@ const protect = async(req, res, next) => {
         req.user = await User.findById(decoded.id).select("-password").populate("sponsor", "name email");
         if (!req.user) {
             return res.status(401).json({ message: "Utilisateur introuvable" });
+        }
+
+        // Portee du code d'acces utilise par ce lecteur (cours/notes autorises).
+        // Charge a chaque requete pour qu'une modification du code s'applique
+        // immediatement aux lecteurs deja connectes.
+        if (req.user.sponsorCode) {
+            req.codeScope = await AccessCode.findById(req.user.sponsorCode)
+                .select("restricted courses notes")
+                .lean();
         }
         next();
     } catch (error) {

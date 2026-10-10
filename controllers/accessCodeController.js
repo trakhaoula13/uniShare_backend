@@ -1,7 +1,10 @@
 const crypto = require("crypto");
+const mongoose = require("mongoose");
 const AccessCode = require("../models/AccessCode");
 const AuditLog = require("../models/AuditLog");
 const User = require("../models/User");
+const Course = require("../models/Course");
+const Note = require("../models/Note");
 
 const generateUniqueCode = async() => {
     let code;
@@ -13,27 +16,95 @@ const generateUniqueCode = async() => {
     return code;
 };
 
+// Lit la portee demandee (body : { restricted, courseIds, noteIds }) et ne
+// garde que les cours/notes qui appartiennent bien a l'utilisateur courant :
+// impossible de donner acces a l'element d'un autre.
+const readScope = async(req) => {
+    const { restricted, courseIds, noteIds } = req.body;
+    if (!restricted) return { restricted: false, courses: [], notes: [] };
+
+    const onlyValid = (list) => (Array.isArray(list) ? list.filter((id) => mongoose.isValidObjectId(id)) : []);
+    const [courses, notes] = await Promise.all([
+        Course.find({ _id: { $in: onlyValid(courseIds) }, owner: req.user._id }).select("_id"),
+        Note.find({ _id: { $in: onlyValid(noteIds) }, owner: req.user._id }).select("_id"),
+    ]);
+    return { restricted: true, courses: courses.map((c) => c._id), notes: notes.map((n) => n._id) };
+};
+
+const populateScope = (query) => query.populate("courses", "title color").populate("notes", "title");
+
 // @route POST /api/access-codes
-// body: { expiresInDays } (optionnel)
+// body: { expiresInDays?, restricted?, courseIds?, noteIds? }
 // Genere un code d'acces pour un futur compte "viewonly". Reserve aux
 // comptes "user" et "admin" (un compte viewonly ne peut pas en generer).
+// Avec restricted = true, le code ne donne acces qu'aux cours et notes choisis.
 exports.generateCode = async(req, res) => {
+    const scope = await readScope(req);
+    if (scope.restricted && scope.courses.length === 0 && scope.notes.length === 0) {
+        return res.status(400).json({ message: "Choisissez au moins un cours ou une note pour ce code" });
+    }
+
     const code = await generateUniqueCode();
     const { expiresInDays } = req.body;
     const expiresAt = expiresInDays ? new Date(Date.now() + Number(expiresInDays) * 24 * 60 * 60 * 1000) : null;
 
-    const accessCode = await AccessCode.create({ code, createdBy: req.user._id, expiresAt });
-    await AuditLog.create({ action: "code_created", actor: req.user._id, message: `Code d'acces ${code} genere` });
+    const created = await AccessCode.create({ code, createdBy: req.user._id, expiresAt, ...scope });
+    await AuditLog.create({
+        action: "code_created",
+        actor: req.user._id,
+        message: scope.restricted ?
+            `Code d'acces ${code} genere (${scope.courses.length} cours, ${scope.notes.length} notes)` : `Code d'acces ${code} genere`,
+    });
 
-    res.status(201).json(accessCode);
+    const populated = await populateScope(AccessCode.findById(created._id));
+    res.status(201).json({...populated.toObject(), activeUsers: [] });
+};
+
+// @route PUT /api/access-codes/:id
+// body: { restricted, courseIds, noteIds }
+// Modifie ce qu'un code existant donne a voir. S'applique tout de suite aux
+// lecteurs deja connectes avec ce code.
+exports.updateCode = async(req, res) => {
+        const accessCode = await AccessCode.findById(req.params.id);
+        if (!accessCode) return res.status(404).json({ message: "Code introuvable" });
+        if (accessCode.createdBy.toString() !== req.user._id.toString() && req.user.role !== "admin") {
+            return res.status(403).json({ message: "Action non autorisee" });
+        }
+
+        const scope = await readScope(req);
+        if (scope.restricted && scope.courses.length === 0 && scope.notes.length === 0) {
+            return res.status(400).json({ message: "Choisissez au moins un cours ou une note pour ce code" });
+        }
+
+        accessCode.restricted = scope.restricted;
+        accessCode.courses = scope.courses;
+        accessCode.notes = scope.notes;
+        await accessCode.save();
+        await AuditLog.create({
+                    action: "code_created",
+                    actor: req.user._id,
+                    message: `Acces du code ${accessCode.code} modifie (${scope.restricted ? `${scope.courses.length} cours, ${scope.notes.length} notes` : "tout ce qui est partage"})`,
+    });
+
+    const populated = await populateScope(AccessCode.findById(accessCode._id));
+    res.json(populated.toObject());
+};
+
+// @route GET /api/access-codes/options
+// Cours et notes de l'utilisateur courant (et non ceux d'un sponsor
+// consulte), pour choisir ce qu'un code donne a voir.
+exports.getShareOptions = async(req, res) => {
+    const [courses, notes] = await Promise.all([
+        Course.find({ owner: req.user._id }).select("title code color sharedWithViewers").sort({ createdAt: 1 }).lean(),
+        Note.find({ owner: req.user._id }).select("title course sharedWithViewers").sort({ createdAt: 1 }).lean(),
+    ]);
+    res.json({ courses, notes });
 };
 
 // @route GET /api/access-codes  (?all=true reserve a l'admin)
 exports.getCodes = async(req, res) => {
     const filter = req.user.role === "admin" && req.query.all === "true" ? {} : { createdBy: req.user._id };
-    const codes = await AccessCode.find(filter)
-        .populate("createdBy", "name email")
-        .sort({ createdAt: -1 });
+    const codes = await populateScope(AccessCode.find(filter).populate("createdBy", "name email").sort({ createdAt: -1 }));
 
     // Un code est reutilisable : plusieurs lecteurs peuvent l'utiliser en
     // meme temps. On calcule pour chaque code la liste des lecteurs
