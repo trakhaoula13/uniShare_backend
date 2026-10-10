@@ -58,9 +58,6 @@ const CONTENT_TYPES = {
 };
 const INLINE_EXTENSIONS = new Set([".pdf", ".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".txt", ".mp4", ".webm", ".mp3", ".wav"]);
 
-// En dessous de cette taille, le fichier est lu en memoire pour l'envoi.
-const SMALL_FILE_LIMIT = 20 * 1024 * 1024;
-
 const keyFor = (filename) => `unishare/${filename}`;
 
 // @route POST /api/uploads
@@ -90,10 +87,10 @@ exports.uploadFile = async(req, res) => {
             new PutObjectCommand({
                 Bucket: process.env.S3_BUCKET,
                 Key: keyFor(storedName),
-                // Petits fichiers : envoyes en un bloc (signature standard, la plus
-                // compatible). Gros fichiers : envoyes en flux pour economiser la memoire.
-                Body: req.file.size <= SMALL_FILE_LIMIT ? fs.readFileSync(req.file.path) : fs.createReadStream(req.file.path),
-                ContentLength: req.file.size,
+                // Le fichier est envoye en un seul bloc (signature standard) : le mode
+                // "flux" provoque l'erreur "request body was too small" chez Backblaze.
+                // Taille max 50 Mo : tient sans probleme en memoire le temps de l'envoi.
+                Body: fs.readFileSync(req.file.path),
                 ContentType: CONTENT_TYPES[ext] || "application/octet-stream",
                 // Les metadonnees S3 doivent etre en ASCII : on encode le nom.
                 Metadata: { originalname: encodeURIComponent(fileName) },
