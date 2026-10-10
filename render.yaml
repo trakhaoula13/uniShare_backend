@@ -1,0 +1,36 @@
+# render.yaml  (a la racine du depot BACKEND) - OPTIONNEL
+# "Blueprint" Render : decrit le service pour le creer automatiquement.
+# ATTENTION : un Blueprint cree un NOUVEAU service (nouvelle adresse onrender.com).
+# Pour ton service existant, ajoute plutot les variables dans
+# Render > Environment (voir les explications).
+#
+# Les valeurs secretes ont "sync: false" : Render te les demande a la creation
+# et elles ne sont JAMAIS ecrites dans ce fichier ni sur GitHub.
+services:
+  - type: web
+    name: unishare-backend
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      # --- Stockage des fichiers (Backblaze B2) : valeurs non secretes ---
+      - key: S3_ENDPOINT
+        value: https://s3.us-west-004.backblazeb2.com
+      - key: S3_REGION
+        value: us-west-004
+      - key: S3_BUCKET
+        value: unishare-files-2026
+      # --- Secrets : Render te les demande, rien n'est ecrit ici ---
+      - key: S3_ACCESS_KEY_ID
+        sync: false
+      - key: S3_SECRET_ACCESS_KEY
+        sync: false
+      # Ajoute ici tes variables existantes, toujours avec "sync: false" :
+      # - key: MONGO_URI
+      #   sync: false
+      # - key: JWT_SECRET
+      #   sync: false
