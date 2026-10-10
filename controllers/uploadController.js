@@ -1,10 +1,34 @@
 // backend/controllers/uploadController.js  (REMPLACE ta version actuelle)
+// Stockage des fichiers sur un bucket S3 compatible : Cloudflare R2 ou
+// Backblaze B2 (10 Go gratuits). Le bucket reste PRIVE : les fichiers sont
+// lus par le backend, qui les renvoie au navigateur.
+//
+// Variables d'environnement a definir sur Render :
+//   S3_ENDPOINT           ex R2 : https://<ACCOUNT_ID>.r2.cloudflarestorage.com
+//                         ex B2 : https://s3.us-west-004.backblazeb2.com
+//   S3_REGION             R2 : auto      B2 : us-west-004 (selon ton bucket)
+//   S3_BUCKET             nom du bucket
+//   S3_ACCESS_KEY_ID
+//   S3_SECRET_ACCESS_KEY
 const crypto = require("crypto");
 const path = require("path");
-const mongoose = require("mongoose");
+const { S3Client, PutObjectCommand, GetObjectCommand } = require("@aws-sdk/client-s3");
 
-const getBucket = () =>
-    new mongoose.mongo.GridFSBucket(mongoose.connection.db, { bucketName: "uploads" });
+const s3 = new S3Client({
+    region: process.env.S3_REGION || "auto",
+    endpoint: process.env.S3_ENDPOINT,
+    credentials: {
+        accessKeyId: process.env.S3_ACCESS_KEY_ID || "",
+        secretAccessKey: process.env.S3_SECRET_ACCESS_KEY || "",
+    },
+    forcePathStyle: true,
+    // R2 et B2 n'acceptent pas les sommes de controle automatiques recentes du SDK.
+    requestChecksumCalculation: "WHEN_REQUIRED",
+    responseChecksumValidation: "WHEN_REQUIRED",
+});
+
+const isConfigured = () =>
+    process.env.S3_ENDPOINT && process.env.S3_BUCKET && process.env.S3_ACCESS_KEY_ID && process.env.S3_SECRET_ACCESS_KEY;
 
 // Types servis directement dans le navigateur ; les autres sont telecharges.
 const CONTENT_TYPES = {
@@ -30,12 +54,17 @@ const CONTENT_TYPES = {
 };
 const INLINE_EXTENSIONS = new Set([".pdf", ".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".txt", ".mp4", ".webm", ".mp3", ".wav"]);
 
+const keyFor = (filename) => `unishare/${filename}`;
+
 // @route POST /api/uploads
-// Recoit un fichier (champ "file"), l'ecrit dans MongoDB (GridFS) et renvoie
-// son URL publique + ses metadonnees. Un appel par fichier.
+// Recoit un fichier (champ "file"), l'envoie au bucket et renvoie son URL
+// (servie par ce backend) + ses metadonnees. Un appel par fichier.
 exports.uploadFile = async(req, res) => {
     if (!req.file) {
         return res.status(400).json({ message: "Aucun fichier recu" });
+    }
+    if (!isConfigured()) {
+        return res.status(500).json({ message: "Stockage non configure : variables S3_* manquantes sur le serveur" });
     }
 
     try {
@@ -46,14 +75,16 @@ exports.uploadFile = async(req, res) => {
         // correctement les accents et l'arabe dans les noms de fichiers.
         const fileName = Buffer.from(req.file.originalname, "latin1").toString("utf8");
 
-        await new Promise((resolve, reject) => {
-            const stream = getBucket().openUploadStream(storedName, {
-                metadata: { originalName: fileName, contentType: req.file.mimetype, uploadedBy: req.user._id },
-            });
-            stream.on("error", reject);
-            stream.on("finish", resolve);
-            stream.end(req.file.buffer);
-        });
+        await s3.send(
+            new PutObjectCommand({
+                Bucket: process.env.S3_BUCKET,
+                Key: keyFor(storedName),
+                Body: req.file.buffer,
+                ContentType: CONTENT_TYPES[ext] || "application/octet-stream",
+                // Les metadonnees S3 doivent etre en ASCII : on encode le nom.
+                Metadata: { originalname: encodeURIComponent(fileName) },
+            })
+        );
 
         // Derriere le proxy de Render, req.protocol vaut "http" : on lit
         // x-forwarded-proto pour obtenir "https". PUBLIC_BACKEND_URL (optionnel)
@@ -68,40 +99,50 @@ exports.uploadFile = async(req, res) => {
             size: req.file.size,
         });
     } catch (error) {
-        res.status(500).json({ message: "Echec de l'enregistrement du fichier" });
+        res.status(500).json({ message: `Echec de l'envoi vers le stockage : ${error.message || "erreur inconnue"}` });
     }
 };
 
 // @route GET /api/uploads/files/:filename
 exports.serveFile = async(req, res) => {
+    if (!isConfigured()) {
+        return res.status(500).json({ message: "Stockage non configure" });
+    }
+
     try {
         const filename = path.basename(req.params.filename);
-        const bucket = getBucket();
-        const found = await bucket.find({ filename }).limit(1).toArray();
-        if (found.length === 0) {
-            return res.status(404).json({ message: "Fichier introuvable" });
+        const ext = path.extname(filename).toLowerCase();
+
+        const object = await s3.send(
+            new GetObjectCommand({ Bucket: process.env.S3_BUCKET, Key: keyFor(filename) })
+        );
+
+        let originalName = filename;
+        try {
+            if (object.Metadata && object.Metadata.originalname) {
+                originalName = decodeURIComponent(object.Metadata.originalname);
+            }
+        } catch {
+            /* nom invalide : on garde le nom technique */
         }
 
-        const file = found[0];
-        const ext = path.extname(filename).toLowerCase();
-        const originalName = (file.metadata && file.metadata.originalName) || filename;
-
-        res.set({
+        const headers = {
             "Content-Type": CONTENT_TYPES[ext] || "application/octet-stream",
-            "Content-Length": file.length,
             "Content-Disposition": `${INLINE_EXTENSIONS.has(ext) ? "inline" : "attachment"}; filename*=UTF-8''${encodeURIComponent(originalName)}`,
             "X-Content-Type-Options": "nosniff",
             "Cache-Control": "public, max-age=31536000, immutable",
             // Le site (Netlify) et l'API (Render) sont sur des domaines differents :
             // sans cet en-tete, les miniatures d'images seraient bloquees.
             "Cross-Origin-Resource-Policy": "cross-origin",
-        });
+        };
+        if (object.ContentLength) headers["Content-Length"] = object.ContentLength;
+        res.set(headers);
 
-        bucket
-            .openDownloadStreamByName(filename)
-            .on("error", () => res.end())
-            .pipe(res);
+        object.Body.on("error", () => res.end()).pipe(res);
     } catch (error) {
+        if (error.name === "NoSuchKey" || (error.$metadata && error.$metadata.httpStatusCode === 404)) {
+            return res.status(404).json({ message: "Fichier introuvable" });
+        }
         res.status(500).json({ message: "Erreur lors de la lecture du fichier" });
     }
 };

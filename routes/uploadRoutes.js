@@ -5,8 +5,8 @@ const upload = require("../middleware/upload");
 const { protect } = require("../middleware/authMiddleware");
 const { uploadFile, serveFile } = require("../controllers/uploadController");
 
-// Lecture publique d'un fichier (les liens s'ouvrent dans un nouvel onglet,
-// sans en-tete Authorization). Les noms sont aleatoires et non devinables.
+// Lecture d'un fichier (les liens s'ouvrent dans un nouvel onglet, sans
+// en-tete Authorization). Les noms sont aleatoires et non devinables.
 router.get("/files/:filename", serveFile);
 
 router.post("/", protect, upload.single("file"), uploadFile);
