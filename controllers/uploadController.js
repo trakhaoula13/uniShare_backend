@@ -11,6 +11,7 @@
 //   S3_ACCESS_KEY_ID
 //   S3_SECRET_ACCESS_KEY
 const crypto = require("crypto");
+const fs = require("fs");
 const path = require("path");
 const { S3Client, PutObjectCommand, GetObjectCommand } = require("@aws-sdk/client-s3");
 
@@ -63,7 +64,11 @@ exports.uploadFile = async(req, res) => {
     if (!req.file) {
         return res.status(400).json({ message: "Aucun fichier recu" });
     }
+    // Supprime le fichier temporaire, quoi qu'il arrive.
+    const cleanup = () => fs.unlink(req.file.path, () => {});
+
     if (!isConfigured()) {
+        cleanup();
         return res.status(500).json({ message: "Stockage non configure : variables S3_* manquantes sur le serveur" });
     }
 
@@ -79,7 +84,8 @@ exports.uploadFile = async(req, res) => {
             new PutObjectCommand({
                 Bucket: process.env.S3_BUCKET,
                 Key: keyFor(storedName),
-                Body: req.file.buffer,
+                Body: fs.createReadStream(req.file.path),
+                ContentLength: req.file.size,
                 ContentType: CONTENT_TYPES[ext] || "application/octet-stream",
                 // Les metadonnees S3 doivent etre en ASCII : on encode le nom.
                 Metadata: { originalname: encodeURIComponent(fileName) },
@@ -100,6 +106,8 @@ exports.uploadFile = async(req, res) => {
         });
     } catch (error) {
         res.status(500).json({ message: `Echec de l'envoi vers le stockage : ${error.message || "erreur inconnue"}` });
+    } finally {
+        cleanup();
     }
 };
 
