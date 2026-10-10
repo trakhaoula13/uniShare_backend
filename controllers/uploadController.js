@@ -15,12 +15,15 @@ const fs = require("fs");
 const path = require("path");
 const { S3Client, PutObjectCommand, GetObjectCommand } = require("@aws-sdk/client-s3");
 
+// Retire espaces, retours a la ligne et guillemets colles par erreur.
+const clean = (value) => (value || "").trim().replace(/^["']|["']$/g, "");
+
 const s3 = new S3Client({
-    region: process.env.S3_REGION || "auto",
-    endpoint: process.env.S3_ENDPOINT,
+    region: clean(process.env.S3_REGION) || "auto",
+    endpoint: clean(process.env.S3_ENDPOINT),
     credentials: {
-        accessKeyId: process.env.S3_ACCESS_KEY_ID || "",
-        secretAccessKey: process.env.S3_SECRET_ACCESS_KEY || "",
+        accessKeyId: clean(process.env.S3_ACCESS_KEY_ID),
+        secretAccessKey: clean(process.env.S3_SECRET_ACCESS_KEY),
     },
     forcePathStyle: true,
     // R2 et B2 n'acceptent pas les sommes de controle automatiques recentes du SDK.
@@ -55,6 +58,9 @@ const CONTENT_TYPES = {
 };
 const INLINE_EXTENSIONS = new Set([".pdf", ".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".txt", ".mp4", ".webm", ".mp3", ".wav"]);
 
+// En dessous de cette taille, le fichier est lu en memoire pour l'envoi.
+const SMALL_FILE_LIMIT = 20 * 1024 * 1024;
+
 const keyFor = (filename) => `unishare/${filename}`;
 
 // @route POST /api/uploads
@@ -84,7 +90,9 @@ exports.uploadFile = async(req, res) => {
             new PutObjectCommand({
                 Bucket: process.env.S3_BUCKET,
                 Key: keyFor(storedName),
-                Body: fs.createReadStream(req.file.path),
+                // Petits fichiers : envoyes en un bloc (signature standard, la plus
+                // compatible). Gros fichiers : envoyes en flux pour economiser la memoire.
+                Body: req.file.size <= SMALL_FILE_LIMIT ? fs.readFileSync(req.file.path) : fs.createReadStream(req.file.path),
                 ContentLength: req.file.size,
                 ContentType: CONTENT_TYPES[ext] || "application/octet-stream",
                 // Les metadonnees S3 doivent etre en ASCII : on encode le nom.
@@ -105,6 +113,18 @@ exports.uploadFile = async(req, res) => {
             size: req.file.size,
         });
     } catch (error) {
+        // Details dans les logs de Render (jamais les cles) pour faciliter le diagnostic.
+        console.error("[stockage] envoi echoue :", {
+            name: error.name,
+            code: error.Code || error.code,
+            status: error.$metadata && error.$metadata.httpStatusCode,
+            message: error.message,
+            endpoint: process.env.S3_ENDPOINT,
+            region: process.env.S3_REGION,
+            bucket: process.env.S3_BUCKET,
+            keyIdLength: (process.env.S3_ACCESS_KEY_ID || "").length,
+            secretLength: (process.env.S3_SECRET_ACCESS_KEY || "").length,
+        });
         res.status(500).json({ message: `Echec de l'envoi vers le stockage : ${error.message || "erreur inconnue"}` });
     } finally {
         cleanup();
