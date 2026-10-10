@@ -20,15 +20,21 @@ const generateUniqueCode = async() => {
 // garde que les cours/notes qui appartiennent bien a l'utilisateur courant :
 // impossible de donner acces a l'element d'un autre.
 const readScope = async(req) => {
-    const { restricted, courseIds, noteIds } = req.body;
-    if (!restricted) return { restricted: false, courses: [], notes: [] };
+    const { restricted, courseIds, noteIds, includeCourseContent, includeUnshared } = req.body;
+    if (!restricted) return { restricted: false, courses: [], notes: [], includeCourseContent: false, includeUnshared: false };
 
     const onlyValid = (list) => (Array.isArray(list) ? list.filter((id) => mongoose.isValidObjectId(id)) : []);
     const [courses, notes] = await Promise.all([
         Course.find({ _id: { $in: onlyValid(courseIds) }, owner: req.user._id }).select("_id"),
         Note.find({ _id: { $in: onlyValid(noteIds) }, owner: req.user._id }).select("_id"),
     ]);
-    return { restricted: true, courses: courses.map((c) => c._id), notes: notes.map((n) => n._id) };
+    return {
+        restricted: true,
+        courses: courses.map((c) => c._id),
+        notes: notes.map((n) => n._id),
+        includeCourseContent: !!includeCourseContent,
+        includeUnshared: !!includeUnshared,
+    };
 };
 
 const populateScope = (query) => query.populate("courses", "title color").populate("notes", "title");
@@ -79,6 +85,8 @@ exports.updateCode = async(req, res) => {
         accessCode.restricted = scope.restricted;
         accessCode.courses = scope.courses;
         accessCode.notes = scope.notes;
+        accessCode.includeCourseContent = scope.includeCourseContent;
+        accessCode.includeUnshared = scope.includeUnshared;
         await accessCode.save();
         await AuditLog.create({
                     action: "code_created",

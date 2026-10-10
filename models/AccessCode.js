@@ -13,6 +13,12 @@ const accessCodeSchema = new mongoose.Schema({
     restricted: { type: Boolean, default: false },
     courses: [{ type: mongoose.Schema.Types.ObjectId, ref: "Course" }],
     notes: [{ type: mongoose.Schema.Types.ObjectId, ref: "Note" }],
+    // Avec un code restreint :
+    //  - includeCourseContent : toutes les notes (et leurs fichiers) des cours
+    //    choisis sont visibles, sans avoir a cocher chaque note.
+    //  - includeUnshared : visible meme si l'element est non partage (oeil barre).
+    includeCourseContent: { type: Boolean, default: false },
+    includeUnshared: { type: Boolean, default: false },
     // Reutilisable : plusieurs lecteurs peuvent utiliser ce code en meme
     // temps, et un meme lecteur peut le reutiliser apres l'avoir quitte.
     // Qui l'utilise actuellement se deduit de User.sponsorCode, pas d'un

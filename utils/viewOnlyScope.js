@@ -19,8 +19,17 @@ exports.scopeFilter = (req, kind) => {
         const base = { owner: sponsorId, sharedWithViewers: true };
         const scope = req.codeScope;
         if (scope && scope.restricted) {
-            if (kind === "course") return {...base, _id: { $in: scope.courses || [] } };
-            if (kind === "note") return {...base, _id: { $in: scope.notes || [] } };
+            // Avec "includeUnshared", les elements non partages sont visibles aussi.
+            const owned = { owner: sponsorId };
+            if (!scope.includeUnshared) owned.sharedWithViewers = true;
+
+            if (kind === "course") return {...owned, _id: { $in: scope.courses || [] } };
+            if (kind === "note") {
+                // Notes cochees + (option) toutes les notes des cours choisis.
+                const conditions = [{ _id: { $in: scope.notes || [] } }];
+                if (scope.includeCourseContent) conditions.push({ course: { $in: scope.courses || [] } });
+                return {...owned, $or: conditions };
+            }
             return {...base, _id: { $in: [] } }; // autres ressources : rien
         }
         return base;

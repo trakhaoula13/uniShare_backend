@@ -13,6 +13,11 @@ exports.getNotes = async(req, res) => {
 
     if (!isConsulting) return res.json(notes);
 
+    // Code restreint avec "includeUnshared" : tous les fichiers et toutes les
+    // notes des pages visibles, y compris ceux non partages individuellement.
+    const scope = req.codeScope;
+    if (scope && scope.restricted && scope.includeUnshared) return res.json(notes);
+
     const filtered = notes.map((note) => {
         const obj = note.toObject();
         obj.files = (obj.files || []).filter((f) => f.sharedWithViewers);

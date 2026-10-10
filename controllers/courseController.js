@@ -16,9 +16,11 @@ exports.getCourse = async(req, res) => {
     const isConsulting = sponsorId && (req.user.role === "viewonly" || req.user.role === "user");
 
     if (isConsulting) {
-        const isVisible = course.owner.toString() === sponsorId.toString() && course.sharedWithViewers;
-        // Code restreint : le cours doit aussi faire partie de ceux choisis.
+        // Code restreint avec "includeUnshared" : un cours non partage reste visible.
         const scope = req.codeScope;
+        const seesUnshared = !!(scope && scope.restricted && scope.includeUnshared);
+        const isVisible = course.owner.toString() === sponsorId.toString() && (course.sharedWithViewers || seesUnshared);
+        // Code restreint : le cours doit aussi faire partie de ceux choisis.
         const inScope = !(scope && scope.restricted) ||
             (scope.courses || []).some((id) => id.toString() === course._id.toString());
         if (!isVisible || !inScope) return res.status(403).json({ message: "Ce cours n'est pas partage avec vous" });
