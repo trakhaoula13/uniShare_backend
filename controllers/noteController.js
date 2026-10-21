@@ -13,15 +13,49 @@ exports.getNotes = async(req, res) => {
 
     if (!isConsulting) return res.json(notes);
 
-    // Code restreint avec "includeUnshared" : tous les fichiers et toutes les
-    // notes des pages visibles, y compris ceux non partages individuellement.
     const scope = req.codeScope;
-    if (scope && scope.restricted && scope.includeUnshared) return res.json(notes);
+    const restricted = !!(scope && scope.restricted);
+    const seesUnshared = restricted && !!scope.includeUnshared;
+
+    // Code restreint : une page peut etre accordee en entier (cochee, ou cours
+    // coche avec "tout le contenu"), ou seulement en partie (certains fichiers
+    // ou notes internes). Dans ce dernier cas, seuls les elements choisis sont
+    // envoyes : ni description, ni autres fichiers, ni autres notes internes.
+    const noteIds = new Set(restricted ? (scope.notes || []).map(String) : []);
+    const courseIds = new Set(restricted ? (scope.courses || []).map(String) : []);
+    const fileUrls = new Set(restricted ? scope.files || [] : []);
+    const entryIds = new Set(restricted ? (scope.entries || []).map(String) : []);
+
+    const visibleItem = (item) => seesUnshared || item.sharedWithViewers;
 
     const filtered = notes.map((note) => {
         const obj = note.toObject();
-        obj.files = (obj.files || []).filter((f) => f.sharedWithViewers);
-        obj.entries = (obj.entries || []).filter((e) => e.sharedWithViewers);
+
+        if (!restricted) {
+            // Ancien code : tout ce qui est partage, fichier par fichier.
+            obj.files = (obj.files || []).filter((f) => f.sharedWithViewers);
+            obj.entries = (obj.entries || []).filter((e) => e.sharedWithViewers);
+            return obj;
+        }
+
+        const courseId = String((obj.course && obj.course._id) || obj.course);
+        const full = noteIds.has(String(obj._id)) || (scope.includeCourseContent && courseIds.has(courseId));
+
+        if (full) {
+            obj.files = (obj.files || []).filter(visibleItem);
+            obj.entries = (obj.entries || []).filter(visibleItem);
+            return obj;
+        }
+
+        // Page partielle
+        obj.content = "";
+        obj.files = (obj.files || []).filter((f) => fileUrls.has(f.fileUrl) && visibleItem(f));
+        obj.entries = (obj.entries || []).filter((e) => entryIds.has(String(e._id)) && visibleItem(e));
+        if (!fileUrls.has(obj.fileUrl)) {
+            obj.fileUrl = "";
+            obj.fileName = "";
+            obj.fileType = "";
+        }
         return obj;
     });
     res.json(filtered);

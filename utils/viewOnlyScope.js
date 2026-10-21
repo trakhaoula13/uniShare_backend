@@ -28,6 +28,9 @@ exports.scopeFilter = (req, kind) => {
                 // Notes cochees + (option) toutes les notes des cours choisis.
                 const conditions = [{ _id: { $in: scope.notes || [] } }];
                 if (scope.includeCourseContent) conditions.push({ course: { $in: scope.courses || [] } });
+                // Pages dont on ne montre que certains fichiers / notes internes.
+                if ((scope.files || []).length) conditions.push({ "files.fileUrl": { $in: scope.files } }, { fileUrl: { $in: scope.files } });
+                if ((scope.entries || []).length) conditions.push({ "entries._id": { $in: scope.entries } });
                 return {...owned, $or: conditions };
             }
             return {...base, _id: { $in: [] } }; // autres ressources : rien

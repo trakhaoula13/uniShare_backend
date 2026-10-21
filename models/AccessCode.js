@@ -17,6 +17,13 @@ const accessCodeSchema = new mongoose.Schema({
     //  - includeCourseContent : toutes les notes (et leurs fichiers) des cours
     //    choisis sont visibles, sans avoir a cocher chaque note.
     //  - includeUnshared : visible meme si l'element est non partage (oeil barre).
+    // Choix plus fins, pour les notes NON choisies en entier :
+    //  - files   : adresses (fileUrl) des fichiers autorises
+    //  - entries : identifiants des notes internes autorisees
+    // Une page contenant au moins un de ces elements devient visible, mais
+    // uniquement avec les elements choisis.
+    files: [{ type: String }],
+    entries: [{ type: mongoose.Schema.Types.ObjectId }],
     includeCourseContent: { type: Boolean, default: false },
     includeUnshared: { type: Boolean, default: false },
     // Reutilisable : plusieurs lecteurs peuvent utiliser ce code en meme
