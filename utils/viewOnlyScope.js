@@ -39,6 +39,11 @@ exports.scopeFilter = (req, kind) => {
             if (kind === "schedule") return scope.includeSchedule ? owned : {...base, _id: { $in: [] } };
             return {...base, _id: { $in: [] } }; // autres ressources : rien
         }
+        // Code "tout ce que j'ai partage" : projets/examens et emploi du temps
+        // peuvent etre ajoutes en entier (meme sans l'oeil active) via les
+        // options allAssignments / allSchedule du code.
+        if (scope && kind === "assignment" && scope.allAssignments) return { owner: sponsorId };
+        if (scope && kind === "schedule" && scope.allSchedule) return { owner: sponsorId };
         return base;
     }
     if (req.user.role === "admin" && req.query.all === "true") {

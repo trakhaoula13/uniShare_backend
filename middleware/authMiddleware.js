@@ -27,7 +27,7 @@ const protect = async(req, res, next) => {
         // immediatement aux lecteurs deja connectes.
         if (req.user.sponsorCode) {
             req.codeScope = await AccessCode.findById(req.user.sponsorCode)
-                .select("restricted courses notes files entries assignments includeSchedule includeCourseContent includeUnshared")
+                .select("restricted courses notes files entries assignments includeSchedule allAssignments allSchedule includeCourseContent includeUnshared")
                 .lean();
         }
         next();

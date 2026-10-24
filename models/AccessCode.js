@@ -27,6 +27,11 @@ const accessCodeSchema = new mongoose.Schema({
     // Projets tutores / examens autorises, et acces (ou non) a l'emploi du temps.
     assignments: [{ type: mongoose.Schema.Types.ObjectId, ref: "Assignment" }],
     includeSchedule: { type: Boolean, default: false },
+    // Code "tout ce que j'ai partage" (restricted = false) :
+    //  - allAssignments : tous les projets tutores / examens sont visibles, partages ou non.
+    //  - allSchedule    : toutes les seances de l'emploi du temps sont visibles, partagees ou non.
+    allAssignments: { type: Boolean, default: false },
+    allSchedule: { type: Boolean, default: false },
     includeCourseContent: { type: Boolean, default: false },
     includeUnshared: { type: Boolean, default: false },
     // Reutilisable : plusieurs lecteurs peuvent utiliser ce code en meme
