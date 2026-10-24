@@ -22,9 +22,29 @@ const generateUniqueCode = async() => {
 // impossible de donner acces a l'element d'un autre.
 const readScope = async(req) => {
     const { restricted, courseIds, noteIds, fileUrls, entryIds, assignmentIds, includeSchedule, includeCourseContent, includeUnshared, allAssignments, allSchedule, unsharedCourseIds, unsharedAssignmentIds } = req.body;
-    if (!restricted) return { restricted: false, courses: [], notes: [], files: [], entries: [], assignments: [], includeSchedule: false, includeCourseContent: false, includeUnshared: false, unsharedCourses: [], unsharedAssignments: [], allAssignments: !!allAssignments, allSchedule: !!allSchedule };
-
     const onlyValid = (list) => (Array.isArray(list) ? list.filter((id) => mongoose.isValidObjectId(id)) : []);
+
+    if (!restricted) {
+        // Mode "tout ce qui est partage" : on peut en plus reveler certains
+        // projets/examens NON partages, choisis un par un (appartenant a l'utilisateur).
+        const ownAssignments = await Assignment.find({ _id: { $in: onlyValid(unsharedAssignmentIds) }, owner: req.user._id }).select("_id");
+        return {
+            restricted: false,
+            courses: [],
+            notes: [],
+            files: [],
+            entries: [],
+            assignments: [],
+            includeSchedule: false,
+            includeCourseContent: false,
+            includeUnshared: false,
+            unsharedCourses: [],
+            unsharedAssignments: allAssignments ? [] : ownAssignments.map((a) => a._id),
+            allAssignments: !!allAssignments,
+            allSchedule: !!allSchedule,
+        };
+    }
+
     const [courses, notes, ownNotes, assignments] = await Promise.all([
         Course.find({ _id: { $in: onlyValid(courseIds) }, owner: req.user._id }).select("_id"),
         Note.find({ _id: { $in: onlyValid(noteIds) }, owner: req.user._id }).select("_id"),
