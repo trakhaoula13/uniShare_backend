@@ -175,7 +175,10 @@ exports.getCodes = async(req, res) => {
     res.json(withUsers);
 };
 
-// @route DELETE /api/access-codes/:id  (revocation)
+// @route DELETE /api/access-codes/:id  (suppression definitive)
+// Supprime le code (il disparait de la liste) et detache les lecteurs qui
+// l'utilisaient : sans cela, leur lien vers ce code resterait orphelin et
+// ils pourraient garder un acces. Ils retrouvent leur propre compte.
 exports.revokeCode = async(req, res) => {
     const accessCode = await AccessCode.findById(req.params.id);
     if (!accessCode) return res.status(404).json({ message: "Code introuvable" });
@@ -183,11 +186,11 @@ exports.revokeCode = async(req, res) => {
         return res.status(403).json({ message: "Action non autorisee" });
     }
 
-    accessCode.revoked = true;
-    await accessCode.save();
-    await AuditLog.create({ action: "code_revoked", actor: req.user._id, message: `Code d'acces ${accessCode.code} revoque` });
+    const detached = await User.updateMany({ sponsorCode: accessCode._id }, { $set: { sponsor: null, sponsorCode: null } });
+    await accessCode.deleteOne();
+    await AuditLog.create({ action: "code_revoked", actor: req.user._id, message: `Code d'acces ${accessCode.code} supprime` });
 
-    res.json({ message: "Code revoque" });
+    res.json({ message: "Code supprime", detachedUsers: detached.modifiedCount || 0 });
 };
 
 // @route POST /api/access-codes/redeem
