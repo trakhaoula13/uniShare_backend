@@ -7,16 +7,24 @@ exports.getSchedule = async(req, res) => {
 };
 
 exports.createScheduleItem = async(req, res) => {
-    const item = await Schedule.create({...req.body, owner: req.user._id });
-    res.status(201).json(item);
+    try {
+        const item = await Schedule.create({...req.body, owner: req.user._id });
+        res.status(201).json(item);
+    } catch (err) {
+        res.status(400).json({ message: err.message });
+    }
 };
 
 exports.updateScheduleItem = async(req, res) => {
     const item = await Schedule.findOne({ _id: req.params.id, owner: req.user._id });
     if (!item) return res.status(404).json({ message: "Introuvable" });
     Object.assign(item, req.body);
-    await item.save();
-    res.json(item);
+    try {
+        await item.save();
+        res.json(item);
+    } catch (err) {
+        res.status(400).json({ message: err.message });
+    }
 };
 
 exports.deleteScheduleItem = async(req, res) => {
