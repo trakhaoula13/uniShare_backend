@@ -34,6 +34,11 @@ const accessCodeSchema = new mongoose.Schema({
     allSchedule: { type: Boolean, default: false },
     includeCourseContent: { type: Boolean, default: false },
     includeUnshared: { type: Boolean, default: false },
+    // Choix individuels : parmi `courses` / `assignments`, ceux qui restent
+    // visibles meme s'ils ne sont pas marques "partages" (oeil barre).
+    // (includeUnshared = true reste un raccourci "tout").
+    unsharedCourses: [{ type: mongoose.Schema.Types.ObjectId, ref: "Course" }],
+    unsharedAssignments: [{ type: mongoose.Schema.Types.ObjectId, ref: "Assignment" }],
     // Reutilisable : plusieurs lecteurs peuvent utiliser ce code en meme
     // temps, et un meme lecteur peut le reutiliser apres l'avoir quitte.
     // Qui l'utilise actuellement se deduit de User.sponsorCode, pas d'un

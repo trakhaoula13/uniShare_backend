@@ -21,8 +21,8 @@ const generateUniqueCode = async() => {
 // garde que les cours/notes qui appartiennent bien a l'utilisateur courant :
 // impossible de donner acces a l'element d'un autre.
 const readScope = async(req) => {
-    const { restricted, courseIds, noteIds, fileUrls, entryIds, assignmentIds, includeSchedule, includeCourseContent, includeUnshared, allAssignments, allSchedule } = req.body;
-    if (!restricted) return { restricted: false, courses: [], notes: [], files: [], entries: [], assignments: [], includeSchedule: false, includeCourseContent: false, includeUnshared: false, allAssignments: !!allAssignments, allSchedule: !!allSchedule };
+    const { restricted, courseIds, noteIds, fileUrls, entryIds, assignmentIds, includeSchedule, includeCourseContent, includeUnshared, allAssignments, allSchedule, unsharedCourseIds, unsharedAssignmentIds } = req.body;
+    if (!restricted) return { restricted: false, courses: [], notes: [], files: [], entries: [], assignments: [], includeSchedule: false, includeCourseContent: false, includeUnshared: false, unsharedCourses: [], unsharedAssignments: [], allAssignments: !!allAssignments, allSchedule: !!allSchedule };
 
     const onlyValid = (list) => (Array.isArray(list) ? list.filter((id) => mongoose.isValidObjectId(id)) : []);
     const [courses, notes, ownNotes, assignments] = await Promise.all([
@@ -40,6 +40,12 @@ const readScope = async(req) => {
         (n.files || []).forEach((f) => ownFiles.add(f.fileUrl));
         (n.entries || []).forEach((e) => ownEntries.add(String(e._id)));
     }
+    // On ne garde, parmi les choix "non partage", que les cours/projets deja
+    // retenus dans le code (et appartenant bien a l'utilisateur).
+    const keepIn = (ids, docs) => {
+        const allowed = new Set(docs.map((d) => String(d._id)));
+        return onlyValid(ids).filter((id) => allowed.has(String(id)));
+    };
     const files = (Array.isArray(fileUrls) ? fileUrls : []).filter((u) => ownFiles.has(u));
     const entries = (Array.isArray(entryIds) ? entryIds : []).filter((id) => ownEntries.has(String(id)));
 
@@ -53,6 +59,8 @@ const readScope = async(req) => {
         includeSchedule: !!includeSchedule,
         includeCourseContent: !!includeCourseContent,
         includeUnshared: !!includeUnshared,
+        unsharedCourses: keepIn(unsharedCourseIds, courses),
+        unsharedAssignments: keepIn(unsharedAssignmentIds, assignments),
         allAssignments: false,
         allSchedule: false,
     };
@@ -112,6 +120,8 @@ exports.updateCode = async(req, res) => {
         accessCode.includeSchedule = scope.includeSchedule;
         accessCode.includeCourseContent = scope.includeCourseContent;
         accessCode.includeUnshared = scope.includeUnshared;
+        accessCode.unsharedCourses = scope.unsharedCourses;
+        accessCode.unsharedAssignments = scope.unsharedAssignments;
         accessCode.allAssignments = scope.allAssignments;
         accessCode.allSchedule = scope.allSchedule;
         await accessCode.save();

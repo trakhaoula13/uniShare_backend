@@ -3,19 +3,41 @@ const AuditLog = require("../models/AuditLog"); // adapte le nom/chemin si besoi
 
 // @route GET /api/users  (admin)
 exports.getUsers = async(req, res) => {
-    const users = await User.find().select("-password").sort({ createdAt: -1 });
+    const users = await User.find()
+        .select("-password")
+        .populate("sponsor", "name email")
+        .populate("sponsorCode", "code")
+        .sort({ createdAt: -1 });
     res.json(users);
 };
 
 // @route PUT /api/users/:id/role  (admin)
 exports.updateUserRole = async(req, res) => {
     const { role } = req.body;
+    if (!["user", "admin", "viewonly"].includes(role)) {
+        return res.status(400).json({ message: "Role invalide" });
+    }
     const user = await User.findById(req.params.id);
     if (!user) return res.status(404).json({ message: "Utilisateur introuvable" });
 
+    const previousRole = user.role;
     user.role = role;
     await user.save();
-    res.json({ _id: user._id, name: user.name, email: user.email, role: user.role });
+
+    await AuditLog.create({
+        action: "role_change",
+        actor: req.user._id,
+        target: user._id,
+        message: `Role modifie : ${previousRole} -> ${role}`,
+    });
+
+    // On renvoie la meme forme que GET /api/users (sponsor et date inclus),
+    // sinon la ligne du tableau admin perd ces champs apres un changement.
+    const updated = await User.findById(user._id)
+        .select("-password")
+        .populate("sponsor", "name email")
+        .populate("sponsorCode", "code");
+    res.json(updated);
 };
 
 // @route DELETE /api/users/:id  (admin)
