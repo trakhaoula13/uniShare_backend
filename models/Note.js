@@ -35,4 +35,8 @@ const noteSchema = new mongoose.Schema({
     owner: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
 }, { timestamps: true });
 
+// Index : les listes sont toujours filtrees par proprietaire / cours
+noteSchema.index({ owner: 1, createdAt: -1 });
+noteSchema.index({ course: 1 });
+
 module.exports = mongoose.model("Note", noteSchema);

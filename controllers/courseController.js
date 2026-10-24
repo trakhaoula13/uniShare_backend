@@ -3,7 +3,7 @@ const ProgressLog = require("../models/ProgressLog");
 const { scopeFilter } = require("../utils/viewOnlyScope");
 
 exports.getCourses = async(req, res) => {
-    const courses = await Course.find(scopeFilter(req, "course")).sort({ createdAt: -1 });
+    const courses = await Course.find(scopeFilter(req, "course")).sort({ createdAt: -1 }).lean();
     res.json(courses);
 };
 

@@ -4,7 +4,7 @@ const { scopeFilter } = require("../utils/viewOnlyScope");
 const populateAll = (query) => query.populate("course", "title color").populate("reviewNotes", "title");
 
 exports.getAssignments = async(req, res) => {
-    const assignments = await populateAll(Assignment.find(scopeFilter(req)).sort({ dueDate: 1 }));
+    const assignments = await populateAll(Assignment.find(scopeFilter(req)).sort({ dueDate: 1 })).lean();
     res.json(assignments);
 };
 
