@@ -7,6 +7,47 @@ const Course = require("../models/Course");
 const Note = require("../models/Note");
 const Assignment = require("../models/Assignment");
 
+// --- Emploi du temps -------------------------------------------------------
+// Le modele des seances n'est pas importe directement : on le cherche parmi
+// les modeles Mongoose deja enregistres. Si votre modele porte un autre nom,
+// ajoutez-le ci-dessous OU definissez SCHEDULE_MODEL dans les variables
+// d'environnement (ex: SCHEDULE_MODEL=ScheduleEntry).
+const SCHEDULE_MODEL_NAMES = [
+    process.env.SCHEDULE_MODEL,
+    "Schedule", "ScheduleEntry", "ScheduleItem", "ScheduleSession",
+    "Session", "Seance", "Timetable", "TimetableEntry",
+].filter(Boolean);
+
+const getScheduleModel = () => {
+    for (const name of SCHEDULE_MODEL_NAMES) {
+        if (mongoose.models[name]) return mongoose.models[name];
+    }
+    return null;
+};
+
+const scheduleOwnerFilter = (Model, userId) => {
+    const field = Model.schema.path("owner") ? "owner" : Model.schema.path("user") ? "user" : "owner";
+    return {
+        [field]: userId };
+};
+
+// Ne garde que les seances qui appartiennent bien a l'utilisateur.
+const keepOwnSessions = async(ids, userId) => {
+    const Model = getScheduleModel();
+    if (!Model || !Array.isArray(ids)) return [];
+    const valid = ids.filter((id) => mongoose.isValidObjectId(id));
+    if (!valid.length) return [];
+    const docs = await Model.find({ _id: { $in: valid }, ...scheduleOwnerFilter(Model, userId) }).select("_id");
+    return docs.map((d) => d._id);
+};
+
+const firstOf = (obj, keys) => {
+    for (const k of keys) {
+        if (obj[k] !== undefined && obj[k] !== null && obj[k] !== "") return obj[k];
+    }
+    return undefined;
+};
+
 const generateUniqueCode = async() => {
     let code;
     let exists = true;
@@ -21,13 +62,14 @@ const generateUniqueCode = async() => {
 // garde que les cours/notes qui appartiennent bien a l'utilisateur courant :
 // impossible de donner acces a l'element d'un autre.
 const readScope = async(req) => {
-    const { restricted, courseIds, noteIds, fileUrls, entryIds, assignmentIds, includeSchedule, includeCourseContent, includeUnshared, allAssignments, allSchedule, unsharedCourseIds, unsharedAssignmentIds } = req.body;
+    const { restricted, courseIds, noteIds, fileUrls, entryIds, assignmentIds, includeSchedule, includeCourseContent, includeUnshared, allAssignments, allSchedule, unsharedCourseIds, unsharedAssignmentIds, unsharedSessionIds } = req.body;
     const onlyValid = (list) => (Array.isArray(list) ? list.filter((id) => mongoose.isValidObjectId(id)) : []);
 
     if (!restricted) {
         // Mode "tout ce qui est partage" : on peut en plus reveler certains
         // projets/examens NON partages, choisis un par un (appartenant a l'utilisateur).
         const ownAssignments = await Assignment.find({ _id: { $in: onlyValid(unsharedAssignmentIds) }, owner: req.user._id }).select("_id");
+        const ownSessions = allSchedule ? [] : await keepOwnSessions(unsharedSessionIds, req.user._id);
         return {
             restricted: false,
             courses: [],
@@ -40,6 +82,7 @@ const readScope = async(req) => {
             includeUnshared: false,
             unsharedCourses: [],
             unsharedAssignments: allAssignments ? [] : ownAssignments.map((a) => a._id),
+            unsharedSessions: ownSessions,
             allAssignments: !!allAssignments,
             allSchedule: !!allSchedule,
         };
@@ -66,6 +109,7 @@ const readScope = async(req) => {
         const allowed = new Set(docs.map((d) => String(d._id)));
         return onlyValid(ids).filter((id) => allowed.has(String(id)));
     };
+    const unsharedSessions = includeSchedule ? await keepOwnSessions(unsharedSessionIds, req.user._id) : [];
     const files = (Array.isArray(fileUrls) ? fileUrls : []).filter((u) => ownFiles.has(u));
     const entries = (Array.isArray(entryIds) ? entryIds : []).filter((id) => ownEntries.has(String(id)));
 
@@ -81,6 +125,7 @@ const readScope = async(req) => {
         includeUnshared: !!includeUnshared,
         unsharedCourses: keepIn(unsharedCourseIds, courses),
         unsharedAssignments: keepIn(unsharedAssignmentIds, assignments),
+        unsharedSessions,
         allAssignments: false,
         allSchedule: false,
     };
@@ -142,6 +187,7 @@ exports.updateCode = async(req, res) => {
         accessCode.includeUnshared = scope.includeUnshared;
         accessCode.unsharedCourses = scope.unsharedCourses;
         accessCode.unsharedAssignments = scope.unsharedAssignments;
+        accessCode.unsharedSessions = scope.unsharedSessions;
         accessCode.allAssignments = scope.allAssignments;
         accessCode.allSchedule = scope.allSchedule;
         await accessCode.save();
@@ -174,7 +220,31 @@ exports.getShareOptions = async(req, res) => {
         const entries = (n.entries || []).map((e) => ({ _id: e._id, title: e.title || (e.text || "").slice(0, 40), sharedWithViewers: !!e.sharedWithViewers }));
         return { _id: n._id, title: n.title, course: n.course, sharedWithViewers: n.sharedWithViewers, files, entries };
     });
-    res.json({ courses, notes: notesWithItems, assignments });
+
+    // Seances de l'emploi du temps (liste vide si le modele n'est pas trouve :
+    // cela ne casse jamais le reste de la page).
+    let sessions = [];
+    try {
+        const Model = getScheduleModel();
+        if (Model) {
+            let q = Model.find(scheduleOwnerFilter(Model, req.user._id));
+            if (Model.schema.path("course")) q = q.populate("course", "title");
+            const docs = await q.lean();
+            sessions = docs.map((d) => ({
+                _id: d._id,
+                title: firstOf(d, ["title", "name", "subject", "label"]) || (d.course && d.course.title) || "Seance",
+                course: d.course && d.course.title ? { title: d.course.title } : undefined,
+                day: firstOf(d, ["day", "dayOfWeek", "weekday", "jour", "date"]),
+                start: firstOf(d, ["startTime", "start", "heureDebut", "from", "startDate"]),
+                end: firstOf(d, ["endTime", "end", "heureFin", "to", "endDate"]),
+                sharedWithViewers: !!d.sharedWithViewers,
+            }));
+        }
+    } catch (err) {
+        console.error("[access-codes] lecture de l'emploi du temps impossible :", err.message);
+    }
+
+    res.json({ courses, notes: notesWithItems, assignments, sessions });
 };
 
 // @route GET /api/access-codes  (?all=true reserve a l'admin)
