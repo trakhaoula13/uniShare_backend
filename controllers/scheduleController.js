@@ -2,29 +2,21 @@ const Schedule = require("../models/Schedule");
 const { scopeFilter } = require("../utils/viewOnlyScope");
 
 exports.getSchedule = async(req, res) => {
-    const items = await Schedule.find(scopeFilter(req)).sort({ day: 1, startTime: 1 });
+    const items = await Schedule.find(scopeFilter(req, "schedule")).sort({ day: 1, startTime: 1 });
     res.json(items);
 };
 
 exports.createScheduleItem = async(req, res) => {
-    try {
-        const item = await Schedule.create({...req.body, owner: req.user._id });
-        res.status(201).json(item);
-    } catch (err) {
-        res.status(400).json({ message: err.message });
-    }
+    const item = await Schedule.create({...req.body, owner: req.user._id });
+    res.status(201).json(item);
 };
 
 exports.updateScheduleItem = async(req, res) => {
     const item = await Schedule.findOne({ _id: req.params.id, owner: req.user._id });
     if (!item) return res.status(404).json({ message: "Introuvable" });
     Object.assign(item, req.body);
-    try {
-        await item.save();
-        res.json(item);
-    } catch (err) {
-        res.status(400).json({ message: err.message });
-    }
+    await item.save();
+    res.json(item);
 };
 
 exports.deleteScheduleItem = async(req, res) => {

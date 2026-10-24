@@ -33,6 +33,10 @@ exports.scopeFilter = (req, kind) => {
                 if ((scope.entries || []).length) conditions.push({ "entries._id": { $in: scope.entries } });
                 return {...owned, $or: conditions };
             }
+            // Projets tutores et examens : seulement ceux coches pour ce code.
+            if (kind === "assignment") return {...owned, _id: { $in: scope.assignments || [] } };
+            // Emploi du temps : toutes les seances partagees si le code l'inclut.
+            if (kind === "schedule") return scope.includeSchedule ? owned : {...base, _id: { $in: [] } };
             return {...base, _id: { $in: [] } }; // autres ressources : rien
         }
         return base;

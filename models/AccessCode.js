@@ -24,6 +24,9 @@ const accessCodeSchema = new mongoose.Schema({
     // uniquement avec les elements choisis.
     files: [{ type: String }],
     entries: [{ type: mongoose.Schema.Types.ObjectId }],
+    // Projets tutores / examens autorises, et acces (ou non) a l'emploi du temps.
+    assignments: [{ type: mongoose.Schema.Types.ObjectId, ref: "Assignment" }],
+    includeSchedule: { type: Boolean, default: false },
     includeCourseContent: { type: Boolean, default: false },
     includeUnshared: { type: Boolean, default: false },
     // Reutilisable : plusieurs lecteurs peuvent utiliser ce code en meme

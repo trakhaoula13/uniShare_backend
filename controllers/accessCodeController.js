@@ -5,6 +5,7 @@ const AuditLog = require("../models/AuditLog");
 const User = require("../models/User");
 const Course = require("../models/Course");
 const Note = require("../models/Note");
+const Assignment = require("../models/Assignment");
 
 const generateUniqueCode = async() => {
     let code;
@@ -20,15 +21,16 @@ const generateUniqueCode = async() => {
 // garde que les cours/notes qui appartiennent bien a l'utilisateur courant :
 // impossible de donner acces a l'element d'un autre.
 const readScope = async(req) => {
-    const { restricted, courseIds, noteIds, fileUrls, entryIds, includeCourseContent, includeUnshared } = req.body;
-    if (!restricted) return { restricted: false, courses: [], notes: [], files: [], entries: [], includeCourseContent: false, includeUnshared: false };
+    const { restricted, courseIds, noteIds, fileUrls, entryIds, assignmentIds, includeSchedule, includeCourseContent, includeUnshared } = req.body;
+    if (!restricted) return { restricted: false, courses: [], notes: [], files: [], entries: [], assignments: [], includeSchedule: false, includeCourseContent: false, includeUnshared: false };
 
     const onlyValid = (list) => (Array.isArray(list) ? list.filter((id) => mongoose.isValidObjectId(id)) : []);
-    const [courses, notes, ownNotes] = await Promise.all([
+    const [courses, notes, ownNotes, assignments] = await Promise.all([
         Course.find({ _id: { $in: onlyValid(courseIds) }, owner: req.user._id }).select("_id"),
         Note.find({ _id: { $in: onlyValid(noteIds) }, owner: req.user._id }).select("_id"),
         // Fichiers et notes internes reels de l'utilisateur : on ne garde que ceux-la.
         Note.find({ owner: req.user._id }).select("fileUrl files.fileUrl entries._id").lean(),
+        Assignment.find({ _id: { $in: onlyValid(assignmentIds) }, owner: req.user._id }).select("_id"),
     ]);
 
     const ownFiles = new Set();
@@ -47,6 +49,8 @@ const readScope = async(req) => {
         notes: notes.map((n) => n._id),
         files,
         entries,
+        assignments: assignments.map((a) => a._id),
+        includeSchedule: !!includeSchedule,
         includeCourseContent: !!includeCourseContent,
         includeUnshared: !!includeUnshared,
     };
@@ -61,8 +65,8 @@ const populateScope = (query) => query.populate("courses", "title color").popula
 // Avec restricted = true, le code ne donne acces qu'aux cours et notes choisis.
 exports.generateCode = async(req, res) => {
     const scope = await readScope(req);
-    if (scope.restricted && !scope.courses.length && !scope.notes.length && !scope.files.length && !scope.entries.length) {
-        return res.status(400).json({ message: "Choisissez au moins un cours, une note, un fichier ou une note interne pour ce code" });
+    if (scope.restricted && !scope.courses.length && !scope.notes.length && !scope.files.length && !scope.entries.length && !scope.assignments.length && !scope.includeSchedule) {
+        return res.status(400).json({ message: "Choisissez au moins un cours, une note, un fichier, une note interne, un projet/examen ou l'emploi du temps pour ce code" });
     }
 
     const code = await generateUniqueCode();
@@ -93,8 +97,8 @@ exports.updateCode = async(req, res) => {
         }
 
         const scope = await readScope(req);
-        if (scope.restricted && !scope.courses.length && !scope.notes.length && !scope.files.length && !scope.entries.length) {
-            return res.status(400).json({ message: "Choisissez au moins un cours, une note, un fichier ou une note interne pour ce code" });
+        if (scope.restricted && !scope.courses.length && !scope.notes.length && !scope.files.length && !scope.entries.length && !scope.assignments.length && !scope.includeSchedule) {
+            return res.status(400).json({ message: "Choisissez au moins un cours, une note, un fichier, une note interne, un projet/examen ou l'emploi du temps pour ce code" });
         }
 
         accessCode.restricted = scope.restricted;
@@ -102,6 +106,8 @@ exports.updateCode = async(req, res) => {
         accessCode.notes = scope.notes;
         accessCode.files = scope.files;
         accessCode.entries = scope.entries;
+        accessCode.assignments = scope.assignments;
+        accessCode.includeSchedule = scope.includeSchedule;
         accessCode.includeCourseContent = scope.includeCourseContent;
         accessCode.includeUnshared = scope.includeUnshared;
         await accessCode.save();
@@ -119,9 +125,10 @@ exports.updateCode = async(req, res) => {
 // Cours et notes de l'utilisateur courant (et non ceux d'un sponsor
 // consulte), pour choisir ce qu'un code donne a voir.
 exports.getShareOptions = async(req, res) => {
-    const [courses, notes] = await Promise.all([
+    const [courses, notes, assignments] = await Promise.all([
         Course.find({ owner: req.user._id }).select("title code color sharedWithViewers").sort({ createdAt: 1 }).lean(),
         Note.find({ owner: req.user._id }).select("title course sharedWithViewers fileUrl fileName files entries").sort({ createdAt: 1 }).lean(),
+        Assignment.find({ owner: req.user._id }).select("title type course sharedWithViewers dueDate").populate("course", "title").sort({ dueDate: 1 }).lean(),
     ]);
 
     // Pour chaque note : ses fichiers (ancien PDF unique inclus) et ses notes internes.
@@ -133,7 +140,7 @@ exports.getShareOptions = async(req, res) => {
         const entries = (n.entries || []).map((e) => ({ _id: e._id, title: e.title || (e.text || "").slice(0, 40), sharedWithViewers: !!e.sharedWithViewers }));
         return { _id: n._id, title: n.title, course: n.course, sharedWithViewers: n.sharedWithViewers, files, entries };
     });
-    res.json({ courses, notes: notesWithItems });
+    res.json({ courses, notes: notesWithItems, assignments });
 };
 
 // @route GET /api/access-codes  (?all=true reserve a l'admin)
